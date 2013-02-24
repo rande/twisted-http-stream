@@ -14,15 +14,19 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-__author__ = "Alexandre Fiori"
-__version__ = "0.0.2"
+__author__ = "Thomas Rabaix, Alexandre Fiori"
+__version__ = "0.0.1"
 
-"""Twisted client library for the Twitter Streaming API:
-http://apiwiki.twitter.com/Streaming-API-Documentation"""
+"""Twisted client library to handle Http Streaming.
+
+This code is an adaptation of https://github.com/fiorix/twisted-twitter-stream
+"""
 
 import base64, urllib
 from twisted.protocols import basic
-from twisted.internet import defer, reactor, protocol
+from twisted.internet import defer, protocol, ssl
+
+from urlparse import urlparse
 
 try:
     import simplejson as _json
@@ -34,14 +38,14 @@ except ImportError:
                            "http://pypi.python.org/pypi/simplejson/")
 
 
-class TweetReceiver(object):
+class MessageReceiver(object):
     def connectionMade(self):
         pass
 
     def connectionFailed(self, why):
         pass
 
-    def tweetReceived(self, tweet):
+    def messageReceived(self, message):
         raise NotImplementedError
 
     def _registerProtocol(self, protocol):
@@ -55,7 +59,7 @@ class TweetReceiver(object):
             raise RuntimeError("not connected")
 
 
-class _TwitterStreamProtocol(basic.LineReceiver):
+class HttpStreamProtocol(basic.LineReceiver):
     delimiter = "\r\n"
 
     def __init__(self):
@@ -102,33 +106,34 @@ class _TwitterStreamProtocol(basic.LineReceiver):
         if self.status_size == 0:
             try:
                 # ignore newline keep-alive
-                tweet = _json.loads(self.status_data)
+                message = _json.loads(self.status_data)
             except:
                 pass
             else:
-                self.factory.consumer.tweetReceived(tweet)
+                self.factory.consumer.messageReceived(message)
             self.status_data = ""
             self.status_size = None
             self.setLineMode(extra)
 
 
-class _TwitterStreamFactory(protocol.ReconnectingClientFactory):
+class HttpStreamFactory(protocol.ReconnectingClientFactory):
     maxDelay = 120
-    protocol = _TwitterStreamProtocol
+    protocol = HttpStreamProtocol
 
     def __init__(self, consumer):
-        if isinstance(consumer, TweetReceiver):
+        if isinstance(consumer, MessageReceiver):
             self.consumer = consumer
         else:
-            raise TypeError("consumer should be an instance of TwistedTwitterStream.TweetReceiver")
+            raise TypeError("consumer should be an instance of twistedhttpstream.MessageReceiver")
 
-    def make_header(self, username, password, method, uri, postdata=""):
+    def make_header(self, username, password, method, url, postdata=""):
         auth = base64.encodestring("%s:%s" % (username, password)).strip()
         header = [
-            "%s %s HTTP/1.1" % (method, uri),
+            "%s %s HTTP/1.1" % (method, url.path),
             "Authorization: Basic %s" % auth,
-            "User-Agent: twisted twitter radio",
-            "Host: stream.twitter.com",
+            "User-Agent: twisted http stream",
+            "Host: %s" % url.netloc,
+            "Accept: 'application/json",
         ]
 
         if method == "GET":
@@ -141,36 +146,16 @@ class _TwitterStreamFactory(protocol.ReconnectingClientFactory):
             ]
             self.header = "\r\n".join(header) + "\r\n\r\n" + postdata
 
- 
-def firehose(username, password, consumer):
-    tw = _TwitterStreamFactory(consumer)
-    tw.make_header(username, password, "GET", "/1/statuses/firehose.json")
-    reactor.connectTCP("stream.twitter.com", 80, tw)
+def stream(reactor, url, consumer, username=None, password=None):
+    url = urlparse(url)
 
-def retweet(username, password, consumer):
-    tw = _TwitterStreamFactory(consumer)
-    tw.make_header(username, password, "GET", "/1/statuses/retweet.json")
-    reactor.connectTCP("stream.twitter.com", 80, tw)
+    tw = HttpStreamFactory(consumer)
+    tw.make_header(username, password, "GET", url)
 
-def sample(username, password, consumer):
-    tw = _TwitterStreamFactory(consumer)
-    tw.make_header(username, password, "GET", "/1/statuses/sample.json")
-    reactor.connectTCP("stream.twitter.com", 80, tw)
+    if url.scheme == "https":
+        reactor.connectSSL(url.netloc, 443, tw, ssl.ClientContextFactory())
+    else:
+        reactor.connectTCP(url.netloc, 80, tw)
 
-def filter(username, password, consumer, count=0, delimited=0, track=[], follow=[]):
-    qs = []
-    if count:
-        qs.append("count=%s" % urllib.quote(count))
-    if delimited:
-        qs.append("delimited=%d" % delimited)
-    if follow:
-        qs.append("follow=%s" % ",".join(follow))
-    if track:
-        qs.append("track=%s" % ",".join([urllib.quote(s) for s in track]))
-
-    if not (track or follow):
-        raise RuntimeError("At least one parameter is required: track or follow")
-
-    tw = _TwitterStreamFactory(consumer)
-    tw.make_header(username, password, "POST", "/1/statuses/filter.json", "&".join(qs))
-    reactor.connectTCP("stream.twitter.com", 80, tw)
+    
+    
