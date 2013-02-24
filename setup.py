@@ -8,6 +8,7 @@ setup(
     version="0.0.1",
     description="Twisted client library for the HTTP Stream",
     author="Thomas Rabaix, Alexandre Fiori",
+    author_email="thomas.rabaix@gmail.com",
     url="https://github.com/rande/twisted-http-stream",
     py_modules=["twistedhttpstream"],
     #install_requires=["twisted"],
