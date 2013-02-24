@@ -32,22 +32,22 @@ Thanks to (in no particular order):
 
 ```python
 
-    import twistedhttpstream
-    from twisted.internet import reactor
+import twistedhttpstream
+from twisted.internet import reactor
 
-    class consumer(twistedhttpstream.MessageReceiver):
-        def connectionMade(self):
-            print "connected..."
+class consumer(twistedhttpstream.MessageReceiver):
+    def connectionMade(self):
+        print "connected..."
 
-        def connectionFailed(self, why):
-            print "cannot connect:", why
-            reactor.stop()
+    def connectionFailed(self, why):
+        print "cannot connect:", why
+        reactor.stop()
 
-        def messageReceived(self, message):
-            print "new message:", repr(message)
+    def messageReceived(self, message):
+        print "new message:", repr(message)
 
-    if __name__ == "__main__":
+if __name__ == "__main__":
 
-        twistedhttpstream.stream(reactor, 'https://stream.myawesomesite.com', consumer(), username="", password="")
-        reactor.run()
+    twistedhttpstream.stream(reactor, 'https://stream.myawesomesite.com', consumer(), username="", password="")
+    reactor.run()
 ```
